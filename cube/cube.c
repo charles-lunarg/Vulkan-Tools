@@ -464,6 +464,7 @@ struct demo {
     bool use_break;
     bool suppress_popups;
     bool force_errors;
+    bool verbose;
 
     PFN_vkCreateDebugUtilsMessengerEXT CreateDebugUtilsMessengerEXT;
     PFN_vkDestroyDebugUtilsMessengerEXT DestroyDebugUtilsMessengerEXT;
@@ -2454,7 +2455,7 @@ static void demo_cleanup(struct demo *demo) {
     }
     vkDeviceWaitIdle(demo->device);
     vkDestroyDevice(demo->device, NULL);
-    if (demo->validate) {
+    if (demo->validate || demo->verbose) {
         demo->DestroyDebugUtilsMessengerEXT(demo->inst, demo->dbg_messenger, NULL);
     }
     vkDestroySurfaceKHR(demo->inst, demo->surface, NULL);
@@ -3304,7 +3305,7 @@ static void demo_init_vk(struct demo *demo) {
                 demo->extension_names[demo->enabled_extension_count++] = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
             }
             if (!strcmp(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, instance_extensions[i].extensionName)) {
-                if (demo->validate) {
+                if (demo->validate | demo->verbose) {
                     demo->extension_names[demo->enabled_extension_count++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
                 }
             }
@@ -3404,13 +3405,16 @@ static void demo_init_vk(struct demo *demo) {
      * function to register the final callback.
      */
     VkDebugUtilsMessengerCreateInfoEXT dbg_messenger_create_info;
-    if (demo->validate) {
+    if (demo->validate || demo->verbose) {
         // VK_EXT_debug_utils style
         dbg_messenger_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
         dbg_messenger_create_info.pNext = NULL;
         dbg_messenger_create_info.flags = 0;
         dbg_messenger_create_info.messageSeverity =
             VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        if (demo->verbose)
+            dbg_messenger_create_info.messageSeverity |=
+                VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
         dbg_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                                                 VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                                                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
@@ -3436,6 +3440,30 @@ static void demo_init_vk(struct demo *demo) {
             "Do you have a compatible Vulkan installable client driver (ICD) installed?\n"
             "Please look at the Getting Started guide for additional information.\n",
             "vkCreateInstance Failure");
+    }
+
+    if (demo->validate || demo->verbose) {
+        // Query vkCreateDebugUtilsMessengerEXT and vkDestroyDebugUtilsMessengerEXT so we can create and destroy a
+        // VkDebugUtilsMessengerEXT
+        demo->CreateDebugUtilsMessengerEXT =
+            (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(demo->inst, "vkCreateDebugUtilsMessengerEXT");
+        demo->DestroyDebugUtilsMessengerEXT =
+            (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(demo->inst, "vkDestroyDebugUtilsMessengerEXT");
+        if (NULL == demo->CreateDebugUtilsMessengerEXT || NULL == demo->DestroyDebugUtilsMessengerEXT) {
+            ERR_EXIT("GetProcAddr: Failed to init VK_EXT_debug_utils\n", "GetProcAddr: Failure");
+        }
+
+        err = demo->CreateDebugUtilsMessengerEXT(demo->inst, &dbg_messenger_create_info, NULL, &demo->dbg_messenger);
+        switch (err) {
+            case VK_SUCCESS:
+                break;
+            case VK_ERROR_OUT_OF_HOST_MEMORY:
+                ERR_EXIT("CreateDebugUtilsMessengerEXT: out of host memory\n", "CreateDebugUtilsMessengerEXT Failure");
+                break;
+            default:
+                ERR_EXIT("CreateDebugUtilsMessengerEXT: unknown failure\n", "CreateDebugUtilsMessengerEXT Failure");
+                break;
+        }
     }
 
     /* Make initial call to query gpu_count, then second call for gpu info */
@@ -3585,12 +3613,7 @@ static void demo_init_vk(struct demo *demo) {
     }
 
     if (demo->validate) {
-        // Setup VK_EXT_debug_utils function pointers always (we use them for
-        // debug labels and names).
-        demo->CreateDebugUtilsMessengerEXT =
-            (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(demo->inst, "vkCreateDebugUtilsMessengerEXT");
-        demo->DestroyDebugUtilsMessengerEXT =
-            (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(demo->inst, "vkDestroyDebugUtilsMessengerEXT");
+        // Query the other VK_EXT_debug_utils function pointers always (we use them for debug labels and names).
         demo->SubmitDebugUtilsMessageEXT =
             (PFN_vkSubmitDebugUtilsMessageEXT)vkGetInstanceProcAddr(demo->inst, "vkSubmitDebugUtilsMessageEXT");
         demo->CmdBeginDebugUtilsLabelEXT =
@@ -3601,23 +3624,10 @@ static void demo_init_vk(struct demo *demo) {
             (PFN_vkCmdInsertDebugUtilsLabelEXT)vkGetInstanceProcAddr(demo->inst, "vkCmdInsertDebugUtilsLabelEXT");
         demo->SetDebugUtilsObjectNameEXT =
             (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(demo->inst, "vkSetDebugUtilsObjectNameEXT");
-        if (NULL == demo->CreateDebugUtilsMessengerEXT || NULL == demo->DestroyDebugUtilsMessengerEXT ||
-            NULL == demo->SubmitDebugUtilsMessageEXT || NULL == demo->CmdBeginDebugUtilsLabelEXT ||
+        if (NULL == demo->SubmitDebugUtilsMessageEXT || NULL == demo->CmdBeginDebugUtilsLabelEXT ||
             NULL == demo->CmdEndDebugUtilsLabelEXT || NULL == demo->CmdInsertDebugUtilsLabelEXT ||
             NULL == demo->SetDebugUtilsObjectNameEXT) {
             ERR_EXIT("GetProcAddr: Failed to init VK_EXT_debug_utils\n", "GetProcAddr: Failure");
-        }
-
-        err = demo->CreateDebugUtilsMessengerEXT(demo->inst, &dbg_messenger_create_info, NULL, &demo->dbg_messenger);
-        switch (err) {
-            case VK_SUCCESS:
-                break;
-            case VK_ERROR_OUT_OF_HOST_MEMORY:
-                ERR_EXIT("CreateDebugUtilsMessengerEXT: out of host memory\n", "CreateDebugUtilsMessengerEXT Failure");
-                break;
-            default:
-                ERR_EXIT("CreateDebugUtilsMessengerEXT: unknown failure\n", "CreateDebugUtilsMessengerEXT Failure");
-                break;
         }
     }
     vkGetPhysicalDeviceProperties(demo->gpu, &demo->gpu_props);
@@ -4071,6 +4081,10 @@ static void demo_init(struct demo *demo, int argc, char **argv) {
             demo->validate = true;
             continue;
         }
+        if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
+            demo->verbose = true;
+            continue;
+        }
         if (strcmp(argv[i], "--validate-checks-disabled") == 0) {
             demo->validate = true;
             demo->validate_checks_disabled = true;
@@ -4140,7 +4154,7 @@ static void demo_init(struct demo *demo, int argc, char **argv) {
             "\t[--gpu_number <index of physical device>]\n"
             "\t[--present_mode <present mode enum>]\n"
             "\t[--width <width>] [--height <height>]\n"
-            "\t[--force_errors]\n"
+            "\t[--force_errors] [--verbose | -v ]\n"
             "\t<present_mode_enum>\n"
             "\t\tVK_PRESENT_MODE_IMMEDIATE_KHR = %d\n"
             "\t\tVK_PRESENT_MODE_MAILBOX_KHR = %d\n"
