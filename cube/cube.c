@@ -563,6 +563,13 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_messenger_callback(VkDebugUtilsMessageSever
     }
 
 #ifdef _WIN32
+    // Print to the console if there is one, otherwise this print is ingored
+    // Loader messages shouldn't be formatted, just print it out with an appropriate demarkation.
+    if (strcmp("Loader Message", pCallbackData->pMessageIdName) == 0) {
+        printf("Loader Message: %s\n", pCallbackData->pMessage);
+    } else {
+        printf("%s\n", message);
+    }
 
     in_callback = true;
     if (!demo->suppress_popups) MessageBox(NULL, message, "Alert", MB_OK);
@@ -3534,8 +3541,8 @@ static void demo_init_vk(struct demo *demo) {
     {
         VkPhysicalDeviceProperties physicalDeviceProperties;
         vkGetPhysicalDeviceProperties(demo->gpu, &physicalDeviceProperties);
-        fprintf(stderr, "Selected GPU %d: %s, type: %s\n", demo->gpu_number, physicalDeviceProperties.deviceName,
-                to_string(physicalDeviceProperties.deviceType));
+        printf("Selected GPU %d: %s, type: %s\n", demo->gpu_number, physicalDeviceProperties.deviceName,
+               to_string(physicalDeviceProperties.deviceType));
     }
     free(physical_devices);
 
@@ -4204,6 +4211,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine,
     int argc;
     char **argv;
 
+    // If cube was opened in a command prompt, attach it as the 'console'
+    bool attached_console = AttachConsole(ATTACH_PARENT_PROCESS);
+    HWND console_window = NULL;
+    FILE *fpstdout = NULL, *fpstderr = NULL;
+    if (attached_console) {
+        console_window = GetConsoleWindow();
+
+        // This redirects stdout and stderr to the parent console
+        fpstdout = stdout;
+        fpstderr = stderr;
+        freopen_s(&fpstdout, "CONOUT$", "w", stdout);
+        freopen_s(&fpstderr, "CONOUT$", "w", stderr);
+    }
+
     // Ensure wParam is initialized.
     msg.wParam = 0;
 
@@ -4282,6 +4303,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine,
     }
 
     demo_cleanup(&demo);
+
+    if (attached_console) {
+        fclose(stdout);
+        fclose(stderr);
+
+        // Hack - sends a message to the parent console so that it 'returns' when the application exists
+        SendMessage(console_window, WM_CHAR, VK_RETURN, 0);
+
+        FreeConsole();
+    }
 
     return (int)msg.wParam;
 }
