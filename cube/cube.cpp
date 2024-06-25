@@ -36,6 +36,7 @@
 
 #include <sstream>
 #include <iostream>
+#include <chrono>
 #include <memory>
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
@@ -1326,7 +1327,19 @@ void Demo::init_vk() {
             "vkCreateInstance Failure");
     }
     inst = instance_result.value;
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(inst);
+
+    uint32_t iterations = 10000;
+    uint64_t total_time = 0;
+    for (uint32_t i = 0; i < iterations; i++) {
+        auto before = std::chrono::system_clock::now();
+        VULKAN_HPP_DEFAULT_DISPATCHER.init(inst);
+        auto after = std::chrono::system_clock::now();
+        total_time += std::chrono::duration_cast<std::chrono::microseconds>(after - before).count();
+        if (i == 0) {
+            std::cout << "First load took: " << std::to_string(total_time) << "μs\n";
+        }
+    }
+    std::cout << "Average duration: " << std::to_string(total_time / iterations) << "μs\n";
 
     if (use_debug_messenger) {
         auto create_debug_messenger_return = inst.createDebugUtilsMessengerEXT(debug_utils_create_info);
@@ -2478,19 +2491,16 @@ bool Demo::loadTexture(const char *filename, uint8_t *rgba_data, vk::Subresource
     if ((unsigned char *)cPtr >= (lunarg_ppm + lunarg_ppm_len) || strncmp(cPtr, "P6\n", 3)) {
         return false;
     }
-    while (strncmp(cPtr++, "\n", 1))
-        ;
+    while (strncmp(cPtr++, "\n", 1));
     sscanf(cPtr, "%u %u", &width, &height);
     if (rgba_data == nullptr) {
         return true;
     }
-    while (strncmp(cPtr++, "\n", 1))
-        ;
+    while (strncmp(cPtr++, "\n", 1));
     if ((unsigned char *)cPtr >= (lunarg_ppm + lunarg_ppm_len) || strncmp(cPtr, "255\n", 4)) {
         return false;
     }
-    while (strncmp(cPtr++, "\n", 1))
-        ;
+    while (strncmp(cPtr++, "\n", 1));
     for (uint32_t y = 0; y < height; y++) {
         uint8_t *rowPtr = rgba_data;
         for (uint32_t x = 0; x < width; x++) {
